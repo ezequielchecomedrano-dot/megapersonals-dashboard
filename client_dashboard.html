@@ -214,6 +214,76 @@
             animation: pulse 2s infinite;
         }
         
+        .control-buttons {
+            display: flex;
+            gap: 15px;
+            margin-top: 25px;
+            padding-top: 20px;
+            border-top: 2px solid #f0f0f0;
+        }
+        
+        .btn-control {
+            flex: 1;
+            padding: 15px 20px;
+            border: none;
+            border-radius: 12px;
+            font-size: 1em;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        
+        .btn-pause {
+            background: linear-gradient(135deg, #ff9500, #ff6b00);
+            color: white;
+        }
+        
+        .btn-pause:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(255, 149, 0, 0.4);
+        }
+        
+        .btn-resume {
+            background: linear-gradient(135deg, #00d4aa, #00b894);
+            color: white;
+        }
+        
+        .btn-resume:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(0, 212, 170, 0.4);
+        }
+        
+        .btn-control:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .status-message {
+            text-align: center;
+            padding: 10px;
+            border-radius: 8px;
+            margin-top: 15px;
+            font-weight: bold;
+            display: none;
+        }
+        
+        .status-message.success {
+            background: rgba(0, 212, 170, 0.2);
+            color: #00b894;
+            display: block;
+        }
+        
+        .status-message.paused {
+            background: rgba(255, 149, 0, 0.2);
+            color: #ff9500;
+            display: block;
+        }
+        
         @media (max-width: 768px) {
             .container {
                 padding: 10px;
@@ -285,6 +355,17 @@
                     <span id="lastUpdate" class="detail-value">--:--:--</span>
                 </div>
             </div>
+            
+            <div class="control-buttons">
+                <button id="btnPause" class="btn-control btn-pause" onclick="pauseService()">
+                    ⏸️ Pausar
+                </button>
+                <button id="btnResume" class="btn-control btn-resume" onclick="resumeService()">
+                    ▶️ Reanudar
+                </button>
+            </div>
+            
+            <div id="statusMessage" class="status-message"></div>
         </div>
         
         <div class="footer">
@@ -299,7 +380,8 @@
     </div>
     
     <script>
-        const BUMP_INTERVAL = 15.25; // minutos
+        const BUMP_INTERVAL = 16; // minutos
+        const FIREBASE_URL = 'https://ezequielredd-default-rtdb.firebaseio.com';
         
         // Obtener ID del cliente desde la URL
         function getClientId() {
@@ -307,24 +389,118 @@
             return params.get('id');
         }
         
-        // Obtener datos del cliente
-        function getClientData() {
+        // Pausar servicio
+        async function pauseService() {
+            const clientId = getClientId();
+            if (!clientId) return;
+            
+            const btnPause = document.getElementById('btnPause');
+            btnPause.disabled = true;
+            btnPause.textContent = '⏳ Pausando...';
+            
+            try {
+                const response = await fetch(`${FIREBASE_URL}/clients/${clientId}/active.json`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(false)
+                });
+                
+                if (response.ok) {
+                    showStatusMessage('⏸️ Servicio pausado', 'paused');
+                    updateButtonStates(false);
+                }
+            } catch (error) {
+                console.error('Error al pausar:', error);
+            }
+            
+            btnPause.disabled = false;
+            btnPause.innerHTML = '⏸️ Pausar';
+        }
+        
+        // Reanudar servicio
+        async function resumeService() {
+            const clientId = getClientId();
+            if (!clientId) return;
+            
+            const btnResume = document.getElementById('btnResume');
+            btnResume.disabled = true;
+            btnResume.textContent = '⏳ Reanudando...';
+            
+            try {
+                // Reactivar y actualizar nextBumpTime
+                const now = Date.now();
+                const updates = {
+                    active: true,
+                    nextBumpTime: now + (BUMP_INTERVAL * 60 * 1000),
+                    lastSync: now
+                };
+                
+                const response = await fetch(`${FIREBASE_URL}/clients/${clientId}.json`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(updates)
+                });
+                
+                if (response.ok) {
+                    showStatusMessage('▶️ Servicio reanudado', 'success');
+                    updateButtonStates(true);
+                }
+            } catch (error) {
+                console.error('Error al reanudar:', error);
+            }
+            
+            btnResume.disabled = false;
+            btnResume.innerHTML = '▶️ Reanudar';
+        }
+        
+        // Mostrar mensaje de estado
+        function showStatusMessage(message, type) {
+            const msgElement = document.getElementById('statusMessage');
+            msgElement.textContent = message;
+            msgElement.className = `status-message ${type}`;
+            
+            setTimeout(() => {
+                msgElement.className = 'status-message';
+            }, 3000);
+        }
+        
+        // Actualizar estado de los botones
+        function updateButtonStates(isActive) {
+            const btnPause = document.getElementById('btnPause');
+            const btnResume = document.getElementById('btnResume');
+            
+            if (isActive) {
+                btnPause.style.display = 'flex';
+                btnResume.style.display = 'none';
+            } else {
+                btnPause.style.display = 'none';
+                btnResume.style.display = 'flex';
+            }
+        }
+        
+        // Obtener datos del cliente desde Firebase
+        async function getClientData() {
             const clientId = getClientId();
             if (!clientId) {
                 showError();
                 return null;
             }
             
-            // Buscar en localStorage
-            const allClients = JSON.parse(localStorage.getItem('megapersonals_clients') || '{}');
-            const clientData = allClients[clientId];
-            
-            if (!clientData) {
+            try {
+                const response = await fetch(`${FIREBASE_URL}/clients/${clientId}.json`);
+                const clientData = await response.json();
+                
+                if (!clientData) {
+                    showError();
+                    return null;
+                }
+                
+                return clientData;
+            } catch (error) {
+                console.error('Error al obtener datos:', error);
                 showError();
                 return null;
             }
-            
-            return clientData;
         }
         
         // Mostrar error
@@ -334,11 +510,14 @@
         }
         
         // Actualizar dashboard
-        function updateDashboard() {
-            const data = getClientData();
+        async function updateDashboard() {
+            const data = await getClientData();
             if (!data) return;
             
             const now = Date.now();
+            
+            console.log('Datos recibidos:', data);
+            console.log('nextBumpTime:', data.nextBumpTime, 'now:', now, 'diff:', data.nextBumpTime - now);
             
             // Actualizar estado
             const statusElement = document.getElementById('statusIndicator');
@@ -357,24 +536,42 @@
                 statusText.textContent = '⏹️ Finalizado';
             } else {
                 statusDot.className = 'status-dot status-inactive';
-                statusText.textContent = '🔴 Pausado';
+                statusText.textContent = '⏸️ Pausado';
             }
             
-            // Próximo bump
-            if (!isExpired) {
-                const timeToNextBump = Math.max(0, data.nextBumpTime - now);
+            // Actualizar botones según el estado
+            updateButtonStates(data.active && !isExpired);
+            
+            // Ocultar botones si expiró
+            if (isExpired) {
+                document.getElementById('btnPause').style.display = 'none';
+                document.getElementById('btnResume').style.display = 'none';
+            }
+            
+            // Próximo bump - TIEMPO REAL desde Firebase
+            const timeToNextBump = data.nextBumpTime - now;
+            console.log('timeToNextBump:', timeToNextBump);
+            
+            if (!isExpired && timeToNextBump > 0) {
                 const minutes = Math.floor(timeToNextBump / 60000);
                 const seconds = Math.floor((timeToNextBump % 60000) / 1000);
+                
+                console.log('Minutos:', minutes, 'Segundos:', seconds);
                 
                 document.getElementById('nextBump').textContent = 
                     `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
                 
                 const bumpTotal = BUMP_INTERVAL * 60 * 1000;
                 const bumpElapsed = bumpTotal - timeToNextBump;
-                const bumpProgress = Math.min(100, (bumpElapsed / bumpTotal) * 100);
+                const bumpProgress = Math.min(100, Math.max(0, (bumpElapsed / bumpTotal) * 100));
                 
                 document.getElementById('nextBumpBar').style.width = `${bumpProgress}%`;
                 document.getElementById('nextBumpPercent').textContent = `${Math.round(bumpProgress)}%`;
+            } else if (timeToNextBump <= 0 && !isExpired) {
+                // El tiempo pasó pero el servicio sigue activo - mostrar que está procesando
+                document.getElementById('nextBump').textContent = 'Procesando...';
+                document.getElementById('nextBumpBar').style.width = '100%';
+                document.getElementById('nextBumpPercent').textContent = '100%';
             } else {
                 document.getElementById('nextBump').textContent = 'Finalizado';
                 document.getElementById('nextBumpBar').style.width = '100%';
